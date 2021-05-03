@@ -1,0 +1,13 @@
+[Unit]
+Description=Script for starting hydroponic controller
+After=network.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=60
+ExecStart=/home/pi/work/hydroponic/hydroponic_controller.py
+
+
+[Install]
+WantedBy=multi-user.target
