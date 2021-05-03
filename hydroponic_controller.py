@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 '''
 hydroponic controller
-monitors water level, air temp, light, humidity and controlls water pump
+monitors water level, air temp, light, humidity and controls water pump
 '''
 
 import sys
@@ -77,11 +77,15 @@ def on_mqtt_disconnect(client, userdata, rc):
 
 watertimer = Timer(0,None)
 waterison = False
-watertime = {"on":0.5, "off":1}
+watertime = {"on":2, "off":1}
+nextwateron = None
+nextwateroff = None
 def operatewatertimer(waterswitchfunc):
     global watertimer
     global waterison
     global watertime #in minutes
+    global nextwateron
+    global nextwateroff
 
     if watertimer.is_alive():
         return
@@ -90,20 +94,37 @@ def operatewatertimer(waterswitchfunc):
 
     watertimer = Timer(watertime["on"] * 60 if waterison else watertime["off"] * 60, waterswitchfunc, [not waterison])
     watertimer.start()
+    nextwateron = datetime.datetime.now()+datetime.timedelta(minutes=watertime["off"]) if not waterison else None
+    nextwateroff = datetime.datetime.now()+datetime.timedelta(minutes=watertime["on"]) if waterison else None
 
 
-def showValues(oled, temp, humidity):
-    draw = oled.canvas
-    font = ImageFont.truetype('FreeSerif.ttf', 20)
+def displayInit(oled):
     oled.cls()
     oled.display()
-    draw.text((10, 1), "Temp: {:.1f}°C".format(temp), font=font, fill=1)
-    draw.text((10, 34), "Hum:  {:.0f} %".format(humidity), font=font, fill=1)
+    font = ImageFont.truetype('FreeSans.ttf', 20)
+    draw = oled.canvas
+    draw.text((12, 10), "Hydroponic", font=font, fill=1)
+    draw.text((20, 35), "Controller", font=font, fill=1)
+    oled.display()
+
+
+def showValues(oled, temp, humidity, info):
+    oled.cls()
+    oled.display()
+    draw = oled.canvas
+    font = ImageFont.truetype('FreeSans.ttf', 18)
+    draw.text((5, 1), "Temp: {:.1f}°C".format(temp), font=font, fill=1)
+    draw.text((5, 25), "Hum:  {:.0f} %".format(humidity), font=font, fill=1)
+    font = ImageFont.truetype('FreeSerif.ttf', 12)
+    draw.text((5, 50), info, font=font, fill=1)
     oled.display()
 
 
 def main():
     global mqtt_disconnect_timestamp
+    global nextwateron
+    global nextwateroff
+    global waterison
     ''' main
     '''
     my_logger.debug('Start Debug Log hydroponic controller')
@@ -126,6 +147,7 @@ def main():
     gpio = GpioInterface()
     i2cbus = SMBus(1)
     oled = ssd1306(i2cbus)
+    displayInit(oled)
 
     try:
         mqttclient.user_data_set(watertime)
@@ -155,7 +177,6 @@ def main():
 
             #every 10 secs
             if loopcnt % 10 == 0:
-                my_logger.debug(time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.gmtime()) + ' mainloop ')
                 operatewatertimer(gpio.setwaterpump)
 
                 temp, press, hum = readBME280All()
@@ -168,7 +189,12 @@ def main():
 
                 mqttclient.publish("iot/Hydroponic/WaterPump", "1" if gpio.getwaterpump() else "0")
 
-                showValues(oled, temp, hum)
+                if waterison:
+                    info = "Wasser AUS in " + str((((nextwateroff-datetime.datetime.now()).seconds)//60)%60) + " min"
+                else:
+                    info = "Wasser AN in " + str((((nextwateron-datetime.datetime.now()).seconds)//60)%60) + " min"
+
+                showValues(oled, temp, hum, info)
 
             if minute%2 == 0 and not minute2action:
                 #every other minute
