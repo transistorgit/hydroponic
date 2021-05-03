@@ -13,6 +13,10 @@ import socket
 import paho.mqtt.client as mqtt
 import traceback
 from threading import Timer
+from smbus2 import SMBus
+from lib_oled96 import ssd1306
+import image
+from PIL import ImageFont
 
 #our own modules
 from hydro_logger import my_logger
@@ -88,6 +92,16 @@ def operatewatertimer(waterswitchfunc):
     watertimer.start()
 
 
+def showValues(oled, temp, humidity):
+    draw = oled.canvas
+    font = ImageFont.truetype('FreeSerif.ttf', 20)
+    oled.cls()
+    oled.display()
+    draw.text((10, 1), "Temp: {:.1f}°C".format(temp), font=font, fill=1)
+    draw.text((10, 34), "Hum:  {:.0f} %".format(humidity), font=font, fill=1)
+    oled.display()
+
+
 def main():
     global mqtt_disconnect_timestamp
     ''' main
@@ -110,6 +124,8 @@ def main():
     mqttclient.reconnect_delay_set(min_delay=1, max_delay=120)
 
     gpio = GpioInterface()
+    i2cbus = SMBus(1)
+    oled = ssd1306(i2cbus)
 
     try:
         mqttclient.user_data_set(watertime)
@@ -151,6 +167,8 @@ def main():
                 mqttclient.publish("iot/Hydroponic/Lux", lux, retain=True)
 
                 mqttclient.publish("iot/Hydroponic/WaterPump", "1" if gpio.getwaterpump() else "0")
+
+                showValues(oled, temp, hum)
 
             if minute%2 == 0 and not minute2action:
                 #every other minute
