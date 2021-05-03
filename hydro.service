@@ -7,7 +7,7 @@ Type=simple
 Restart=always
 RestartSec=60
 ExecStart=/home/pi/work/hydroponic/hydroponic_controller.py
-
+WorkingDirectory=/home/pi/work/hydroponic/
 
 [Install]
 WantedBy=multi-user.target
