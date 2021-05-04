@@ -70,7 +70,7 @@ class GpioInterface():
     def setheartbeatled(self, state):
         '''set heartbeat led pin'''
         try:
-            GPIO.output(GpioInterface.HEARTBEATLED, GPIO.HIGH if state else GPIO.LOW)
+            GPIO.output(GpioInterface.HEARTBEATLED, GPIO.LOW if state else GPIO.HIGH)
         except Exception:
             pass
 
@@ -78,7 +78,7 @@ class GpioInterface():
     def getheartbeatled(self):
         '''get heartbeat led pin, usefull for pin toggling'''
         try:
-            return GPIO.input(GpioInterface.HEARTBEATLED)
+            return not GPIO.input(GpioInterface.HEARTBEATLED)
         except Exception:
             pass
 
@@ -128,6 +128,28 @@ class GpioInterface():
                 return True
         except Exception:
             return False
+
+
+    def iswatertanklevelok(self):
+        #pin high means level sensor is not asserted
+        try:
+            if GPIO.input(GpioInterface.WATERTANKLEVELINPUT):
+                return False
+            else:
+                return True
+        except Exception:
+            return False
+
+
+    def iswaterreturnlevelok(self):
+        #water level is ok if no water is detected, so pin is high
+        try:
+            if GPIO.input(GpioInterface.WATERLEVELRETURNINPUT):
+                return True
+            else:
+                return False
+        except Exception:
+            return True
 
 
 def main():

@@ -40,13 +40,12 @@ def internet(host="8.8.8.8", port=53, timeout=3):
      socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect((host, port))
      return True
    except Exception as ex:
-     my_logger.critical(time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.gmtime()) + ' Network Error ' + ex)
+     my_logger.critical(time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.gmtime()) + ' Network Error ' + str(ex))
      return False
 
 
 def on_mqtt_connect(client, userdata, flags, rc):
     global mqtt_disconnect_timestamp
-    #print("Connected with result code "+str(rc))
     my_logger.debug(time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.gmtime()) + " MQTT Connected with result code "+str(rc))
     # Subscribing in on_connect() means that if we lose the connection and
     # reconnect then subscriptions will be renewed.
@@ -56,7 +55,6 @@ def on_mqtt_connect(client, userdata, flags, rc):
 
 
 def on_mqtt_message(client, userdata, msg):
-    #print(msg.topic+" "+str(msg.payload))
     my_logger.debug(time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.gmtime()) + " " + msg.topic+" "+str(msg.payload))
     if msg.topic == "iot/Hydroponic/wateronminutes":
         userdata["on"] = int(msg.payload)
@@ -77,7 +75,7 @@ def on_mqtt_disconnect(client, userdata, rc):
 
 watertimer = Timer(0,None)
 waterison = False
-watertime = {"on":2, "off":1}
+watertime = {"on":5, "off":180}
 nextwateron = None
 nextwateroff = None
 def operatewatertimer(waterswitchfunc):
@@ -87,37 +85,79 @@ def operatewatertimer(waterswitchfunc):
     global nextwateron
     global nextwateroff
 
-    if watertimer.is_alive():
-        return
+    try:
+        if watertimer.is_alive():
+            return
 
-    waterison = not waterison
+        waterison = not waterison
 
-    watertimer = Timer(watertime["on"] * 60 if waterison else watertime["off"] * 60, waterswitchfunc, [not waterison])
-    watertimer.start()
-    nextwateron = datetime.datetime.now()+datetime.timedelta(minutes=watertime["off"]) if not waterison else None
-    nextwateroff = datetime.datetime.now()+datetime.timedelta(minutes=watertime["on"]) if waterison else None
+        watertimer = Timer(watertime["on"] * 60 if waterison else watertime["off"] * 60, waterswitchfunc, [not waterison])
+        watertimer.start()
+        nextwateron = datetime.datetime.now()+datetime.timedelta(minutes=watertime["off"]) if not waterison else None
+        nextwateroff = datetime.datetime.now()+datetime.timedelta(minutes=watertime["on"]) if waterison else None
+    except Exceptions as e:
+        my_logger.critical(time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.gmtime()) + ' operate water timer Error ' + str(ex))
 
 
 def displayInit(oled):
-    oled.cls()
-    oled.display()
-    font = ImageFont.truetype('FreeSans.ttf', 20)
-    draw = oled.canvas
-    draw.text((12, 10), "Hydroponic", font=font, fill=1)
-    draw.text((20, 35), "Controller", font=font, fill=1)
-    oled.display()
+    try:
+        oled.cls()
+        oled.display()
+        font = ImageFont.truetype('FreeSans.ttf', 20)
+        draw = oled.canvas
+        draw.text((12, 10), "Hydroponic", font=font, fill=1)
+        draw.text((20, 35), "Controller", font=font, fill=1)
+        oled.display()
+    except:
+        pass
 
 
 def showValues(oled, temp, humidity, info):
-    oled.cls()
-    oled.display()
-    draw = oled.canvas
-    font = ImageFont.truetype('FreeSans.ttf', 18)
-    draw.text((5, 1), "Temp: {:.1f}°C".format(temp), font=font, fill=1)
-    draw.text((5, 25), "Hum:  {:.0f} %".format(humidity), font=font, fill=1)
-    font = ImageFont.truetype('FreeSerif.ttf', 12)
-    draw.text((5, 50), info, font=font, fill=1)
-    oled.display()
+    try:
+        oled.cls()
+        oled.display()
+        draw = oled.canvas
+        font = ImageFont.truetype('FreeSans.ttf', 18)
+        draw.text((5, 1), "Temp: {:.1f}°C".format(temp), font=font, fill=1)
+        draw.text((5, 25), "Hum:  {:.0f} %".format(humidity), font=font, fill=1)
+        font = ImageFont.truetype('FreeSerif.ttf', 12)
+        draw.text((5, 50), info, font=font, fill=1)
+        oled.display()
+    except:
+        pass
+
+
+def showInfo(info):
+    try:
+        oled.cls()
+        oled.display()
+        draw = oled.canvas
+        font = ImageFont.truetype('FreeSans.ttf', 15)
+        draw.text((5, 1), info, font=font, fill=1)
+        oled.display()
+    except:
+        pass
+
+
+def initmqtt(mqttclient):
+    mqttclient.on_connect = on_mqtt_connect
+    mqttclient.on_message = on_mqtt_message
+    mqttclient.on_disconnect = on_mqtt_disconnect
+    mqttclient.enable_logger()
+    mqttclient.will_set("iot/Hydroponic/Disconnect", "lost connection", retain=True)
+    mqttclient.reconnect_delay_set(min_delay=1, max_delay=120)
+    mqttclient.user_data_set(watertime)
+    mqttclient.loop_start()
+    mqttclient.connect(MQTTSERVER, 1883)
+
+
+def mqttdisconnectandshutdown(mqttclient):
+    msg = time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.gmtime()) + ': Shutdown button pressed'
+    my_logger.info(msg)
+    mqttclient.publish("iot/Hydroponic/Shutdown", msg, retain=True).wait_for_publish()
+    mqttclient.disconnect()
+    os.system("shutdown now -h")
+    exit(0)
 
 
 def main():
@@ -129,72 +169,67 @@ def main():
     '''
     my_logger.debug('Start Debug Log hydroponic controller')
 
-    #wait for network. run on after some retries, so that temp control is working anyhow
-    for _ in range(20):
-        if internet() is True:
-            break
-        else:
-            time.sleep(30)
-
-    mqttclient = mqtt.Client(SERIAL, transport="tcp")
-    mqttclient.on_connect = on_mqtt_connect
-    mqttclient.on_message = on_mqtt_message
-    mqttclient.on_disconnect = on_mqtt_disconnect
-    mqttclient.enable_logger()
-    mqttclient.will_set("iot/Hydroponic/Disconnect", "lost connection", retain=True)
-    mqttclient.reconnect_delay_set(min_delay=1, max_delay=120)
-
-    gpio = GpioInterface()
-    i2cbus = SMBus(1)
-    oled = ssd1306(i2cbus)
-    displayInit(oled)
-
     try:
-        mqttclient.user_data_set(watertime)
-        mqttclient.loop_start()
-        mqttclient.connect(MQTTSERVER, 1883)
-
+        gpio = GpioInterface()
         #initially, switch water on
         gpio.setwaterpump(True)
 
+        i2cbus = SMBus(1)
+        oled = ssd1306(i2cbus)
+        displayInit(oled)
+
+        #wait for network. run on after some retries, so that control is working anyhow
+        for _ in range(20):
+            if internet() is True:
+                break
+            else:
+                time.sleep(30)
+
+        mqttclient = mqtt.Client(SERIAL, transport="tcp")
+        initmqtt(mqttclient)
+
         loopcnt = 0
         minute2action = False
+
+        ### main loop
         while(hydro_globals.keep_running):
             minute = int(time.strftime('%M'))
             time.sleep(1)
 
             #every second
             if gpio.isshutdownpressed():
-                msg = time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.gmtime()) + ': Shutdown button pressed'
-                my_logger.info(msg)
-                mqttclient.publish("iot/Hydroponic/Shutdown", msg, retain=True).wait_for_publish()
-                mqttclient.disconnect()
-                os.system("shutdown now -h")
-                exit(0)
+                hydro_globals.keep_running = False
+                mqttdisconnectandshutdown(mqttclient) #never returns
 
-            gpio.setheartbeatled( not gpio.getheartbeatled())
+            gpio.setheartbeatled(not gpio.getheartbeatled())
             loopcnt += 1
 
             #every 10 secs
             if loopcnt % 10 == 0:
                 operatewatertimer(gpio.setwaterpump)
 
-                temp, press, hum = readBME280All()
-                mqttclient.publish("iot/Hydroponic/AirTemp", temp, retain=True)
-                mqttclient.publish("iot/Hydroponic/AirPress", press, retain=True)
-                mqttclient.publish("iot/Hydroponic/AirRelHum", hum, retain=True)
+                try:
+                    temp, press, hum = readBME280All()
+                    mqttclient.publish("iot/Hydroponic/AirTemp", temp, retain=True)
+                    mqttclient.publish("iot/Hydroponic/AirPress", press, retain=True)
+                    mqttclient.publish("iot/Hydroponic/AirRelHum", hum, retain=True)
 
-                lux = readLight()
-                mqttclient.publish("iot/Hydroponic/Lux", lux, retain=True)
+                    lux = readLight()
+                    mqttclient.publish("iot/Hydroponic/Lux", lux, retain=True)
 
-                mqttclient.publish("iot/Hydroponic/WaterPump", "1" if gpio.getwaterpump() else "0")
+                    mqttclient.publish("iot/Hydroponic/WaterPump", "1" if gpio.getwaterpump() else "0")
+                    mqttclient.publish("iot/Hydroponic/TankEmpty", "0" if gpio.iswatertanklevelok() else "1")
+                    mqttclient.publish("iot/Hydroponic/ReturnFull", "0" if gpio.iswaterreturnlevelok() else "1")
 
-                if waterison:
-                    info = "Wasser AUS in " + str((((nextwateroff-datetime.datetime.now()).seconds)//60)%60) + " min"
+                    if waterison:
+                        info = "Wasser AUS in " + str((((nextwateroff-datetime.datetime.now()).seconds)//60)%60) + " min"
+                    else:
+                        info = "Wasser AN in " + str((((nextwateron-datetime.datetime.now()).seconds)//60)%60) + " min"
+
+                except:
+                    showInfo("Measurement Failure")
                 else:
-                    info = "Wasser AN in " + str((((nextwateron-datetime.datetime.now()).seconds)//60)%60) + " min"
-
-                showValues(oled, temp, hum, info)
+                    showValues(oled, temp, hum, info)
 
             if minute%2 == 0 and not minute2action:
                 #every other minute
@@ -214,12 +249,17 @@ def main():
         mqttclient.loop_stop()
 
     except KeyboardInterrupt:
-        return
+        pass
     except:
         my_logger.error(time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.gmtime()) + ' Hydroponic Controller: Unexpected error: ' + traceback.format_exc())
         raise
         #return
     finally:
+        try:
+            gpio.setwaterpump(False)
+            gpio.setheartbeatled(False)
+        except:
+            pass
         hydro_globals.keep_running = False
         my_logger.info(time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.gmtime()) + ' Hydroponic Controller: main loop ended')
 
