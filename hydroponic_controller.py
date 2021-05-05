@@ -120,14 +120,14 @@ def showValues(oled, temp, humidity, info):
         font = ImageFont.truetype('FreeSans.ttf', 18)
         draw.text((5, 1), "Temp: {:.1f}°C".format(temp), font=font, fill=1)
         draw.text((5, 25), "Hum:  {:.0f} %".format(humidity), font=font, fill=1)
-        font = ImageFont.truetype('FreeSerif.ttf', 12)
+        font = ImageFont.truetype('FreeSans.ttf', 14)
         draw.text((5, 50), info, font=font, fill=1)
         oled.display()
     except:
         pass
 
 
-def showInfo(info):
+def showInfo(oled, info):
     try:
         oled.cls()
         oled.display()
@@ -222,12 +222,14 @@ def main():
                     mqttclient.publish("iot/Hydroponic/ReturnFull", "0" if gpio.iswaterreturnlevelok() else "1")
 
                     if waterison:
-                        info = "Wasser AUS in " + str((((nextwateroff-datetime.datetime.now()).seconds)//60)%60) + " min"
-                    else:
-                        info = "Wasser AN in " + str((((nextwateron-datetime.datetime.now()).seconds)//60)%60) + " min"
+                        diff = nextwateroff-datetime.datetime.now()
+                        info = "AUS in %02d:%02d:%02d" % (int(diff.seconds // (60 * 60)), int((diff.seconds // 60) % 60), int(diff.seconds%60))
 
+                    else:
+                        diff = nextwateron-datetime.datetime.now()
+                        info = "AN in %02d:%02d:%02d" % (int(diff.seconds // (60 * 60)), int((diff.seconds // 60) % 60), int(diff.seconds%60))
                 except:
-                    showInfo("Measurement Failure")
+                    showInfo(oled, "Measurement Err")
                 else:
                     showValues(oled, temp, hum, info)
 
