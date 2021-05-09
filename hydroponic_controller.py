@@ -51,11 +51,12 @@ def on_mqtt_connect(client, userdata, flags, rc):
     # reconnect then subscriptions will be renewed.
     client.subscribe("iot/Hydroponic/wateronminutes")
     client.subscribe("iot/Hydroponic/wateroffminutes")
+    client.subscribe("iot/Hydroponic/setpumpon")
     mqtt_disconnect_timestamp = None
 
 
 def on_mqtt_message(client, userdata, msg):
-    my_logger.debug(time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.gmtime()) + " " + msg.topic+" "+str(msg.payload))
+    my_logger.debug(time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.gmtime()) + " Msg Rcvd: " + msg.topic+" "+str(msg.payload))
     if msg.topic == "iot/Hydroponic/wateronminutes":
         userdata["on"] = int(msg.payload)
         if userdata["on"] < 2:
@@ -64,6 +65,9 @@ def on_mqtt_message(client, userdata, msg):
         userdata["off"] = int(msg.payload)
         if userdata["off"] < 30:
              userdata["off"] = 30
+    if msg.topic == "iot/Hydroponic/setpumpon":
+        if userdata["pumpcallback"] is not None:
+            userdata["pumpcallback"](True if int(msg.payload)==1 else False)
 
 
 def on_mqtt_disconnect(client, userdata, rc):
@@ -75,7 +79,7 @@ def on_mqtt_disconnect(client, userdata, rc):
 
 watertimer = Timer(0,None)
 waterison = False
-watertime = {"on":5, "off":180}
+watertime = {"on":5, "off":180, "pumpcallback":None}
 nextwateron = None
 nextwateroff = None
 def operatewatertimer(waterswitchfunc):
@@ -146,7 +150,6 @@ def initmqtt(mqttclient):
     mqttclient.enable_logger()
     mqttclient.will_set("iot/Hydroponic/Disconnect", "lost connection", retain=True)
     mqttclient.reconnect_delay_set(min_delay=1, max_delay=120)
-    mqttclient.user_data_set(watertime)
     mqttclient.loop_start()
     mqttclient.connect(MQTTSERVER, 1883)
 
@@ -165,6 +168,7 @@ def main():
     global nextwateron
     global nextwateroff
     global waterison
+    global watertime
     ''' main
     '''
     my_logger.debug('Start Debug Log hydroponic controller')
@@ -187,6 +191,8 @@ def main():
 
         mqttclient = mqtt.Client(SERIAL, transport="tcp")
         initmqtt(mqttclient)
+        watertime["pumpcallback"] = gpio.setwaterpump
+        mqttclient.user_data_set(watertime)
 
         loopcnt = 0
         minute2action = False
@@ -213,7 +219,6 @@ def main():
                     mqttclient.publish("iot/Hydroponic/AirTemp", temp, retain=True)
                     mqttclient.publish("iot/Hydroponic/AirPress", press, retain=True)
                     mqttclient.publish("iot/Hydroponic/AirRelHum", hum, retain=True)
-
                     lux = readLight()
                     mqttclient.publish("iot/Hydroponic/Lux", lux, retain=True)
 
@@ -232,7 +237,8 @@ def main():
                         countdown = "%02d:%02d:%02d" % (int(diff.seconds // (60 * 60)), int((diff.seconds // 60) % 60), int(diff.seconds%60))
                         info = "AN in " + countdown
                         mqttclient.publish("iot/Hydroponic/wateroncountdown", countdown)
-                except:
+                except Exception as e:
+                    my_logger.debug(time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.gmtime()) + " Measurement loop err: " + str(e))
                     showInfo(oled, "Measurement Err")
                 else:
                     showValues(oled, temp, hum, info)
