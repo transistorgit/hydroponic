@@ -223,11 +223,15 @@ def main():
 
                     if waterison:
                         diff = nextwateroff-datetime.datetime.now()
-                        info = "AUS in %02d:%02d:%02d" % (int(diff.seconds // (60 * 60)), int((diff.seconds // 60) % 60), int(diff.seconds%60))
+                        countdown = "%02d:%02d:%02d" % (int(diff.seconds // (60 * 60)), int((diff.seconds // 60) % 60), int(diff.seconds%60))
+                        info = "AUS in " + countdown
+                        mqttclient.publish("iot/Hydroponic/wateroffcountdown", countdown)
 
                     else:
                         diff = nextwateron-datetime.datetime.now()
-                        info = "AN in %02d:%02d:%02d" % (int(diff.seconds // (60 * 60)), int((diff.seconds // 60) % 60), int(diff.seconds%60))
+                        countdown = "%02d:%02d:%02d" % (int(diff.seconds // (60 * 60)), int((diff.seconds // 60) % 60), int(diff.seconds%60))
+                        info = "AN in " + countdown
+                        mqttclient.publish("iot/Hydroponic/wateroncountdown", countdown)
                 except:
                     showInfo(oled, "Measurement Err")
                 else:
